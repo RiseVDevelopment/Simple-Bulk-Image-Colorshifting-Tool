@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <title>PNG Recolor Live-Tool</title>
+  <style>
+    body {
+      display: flex;
+      margin: 0;
+      height: 100vh;
+    }
+
+    #controls {
+      width: 200px;
+      padding: 10px;
+      border-right: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+
+    #dropzone {
+      flex: 1;
+      display: flex;
+      flex-wrap: wrap;
+      align-content: flex-start;
+      justify-content: left;
+      padding: 10px;
+      box-sizing: border-box;
+      overflow: auto;
+    }
+
+    .canvas-item {
+      margin: 5px;
+      border: 1px solid #ddd;
+    }
+
+    #targetHex {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 4px;
+      margin-top: 5px;
+    }
+
+    #downloadBtn {
+      width: 100%;
+      margin-top: 10px;
+      padding: 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="controls">
+    <h3>Recolor (Hex)</h3>
+    <input type="text" id="targetHex" value="#FF0000" placeholder="#RRGGBB">
+    <button id="downloadBtn">Download All</button>
+  </div>
+  <div id="dropzone">Drop PNGs hier</div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+  <script>
+    const dropzone = document.getElementById('dropzone');
+    const targetHex = document.getElementById('targetHex');
+    const downloadBtn = document.getElementById('downloadBtn');
+    let images = [];
+
+    dropzone.addEventListener('dragover', e => e.preventDefault());
+    dropzone.addEventListener('drop', e => {
+      e.preventDefault();
+      for (const file of e.dataTransfer.files) {
+        if (file.type === 'image/png') {
+          const reader = new FileReader();
+          reader.onload = ev => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              canvas.width = img.width;
+              canvas.height = img.height;
+              canvas.className = 'canvas-item';
+              canvas.original = img;
+              images.push({
+                canvas,
+                name: file.name
+              });
+              dropzone.appendChild(canvas);
+              updateCanvas(canvas);
+            };
+            img.src = ev.target.result;
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    });
+
+    targetHex.addEventListener('input', () => updateAll());
+
+    downloadBtn.addEventListener('click', () => {
+      images.forEach(({
+        canvas,
+        name
+      }, i) => {
+        setTimeout(() => {
+          canvas.toBlob(blob => saveAs(blob, name));
+        }, i * 200);
+      });
+    });
+
+    function updateAll() {
+      images.forEach(({
+        canvas
+      }) => updateCanvas(canvas));
+    }
+
+    function updateCanvas(c) {
+      const ctx = c.getContext('2d');
+      ctx.drawImage(c.original, 0, 0);
+      const data = ctx.getImageData(0, 0, c.width, c.height);
+      const d = data.data;
+      const tc = hexToRgb(targetHex.value.trim());
+      const thsl = rgbToHsl(tc[0], tc[1], tc[2]);
+
+      for (let i = 0; i < d.length; i += 4) {
+        const r = d[i],
+          g = d[i + 1],
+          b = d[i + 2],
+          a = d[i + 3];
+        const origHsl = rgbToHsl(r, g, b);
+        const l = origHsl[2];
+        const newRgb = hslToRgb(thsl[0], thsl[1], l);
+        d[i] = newRgb[0];
+        d[i + 1] = newRgb[1];
+        d[i + 2] = newRgb[2];
+        d[i + 3] = a;
+      }
+      ctx.putImageData(data, 0, 0);
+    }
+
+    function rgbToHsl(r, g, b) {
+      r /= 255;
+      g /= 255;
+      b /= 255;
+      const max = Math.max(r, g, b),
+        min = Math.min(r, g, b);
+      let h = 0,
+        s = 0,
+        l = (max + min) / 2;
+      if (max !== min) {
+        const d = max - min;
+        s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+        switch (max) {
+          case r:
+            h = (g - b) / d + (g < b ? 6 : 0);
+            break;
+          case g:
+            h = (b - r) / d + 2;
+            break;
+          case b:
+            h = (r - g) / d + 4;
+            break;
+        }
+        h /= 6;
+      }
+      return [h, s, l];
+    }
+
+    function hslToRgb(h, s, l) {
+      let r, g, b;
+      if (s === 0) r = g = b = l;
+      else {
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        r = hue2rgb(p, q, h + 1 / 3);
+        g = hue2rgb(p, q, h);
+        b = hue2rgb(p, q, h - 1 / 3);
+      }
+      return [r * 255, g * 255, b * 255];
+    }
+
+    function hue2rgb(p, q, t) {
+      if (t < 0) t += 1;
+      if (t > 1) t -= 1;
+      if (t < 1 / 6) return p + (q - p) * 6 * t;
+      if (t < 1 / 2) return q;
+      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+      return p;
+    }
+
+    function hexToRgb(hex) {
+      if (!/^#?[0-9A-Fa-f]{6}$/.test(hex)) return [255, 0, 0];
+      hex = hex.replace('#', '');
+      return [parseInt(hex.substr(0, 2), 16), parseInt(hex.substr(2, 2), 16), parseInt(hex.substr(4, 2), 16)];
+    }
+  </script>
+</body>
+
+</html>
