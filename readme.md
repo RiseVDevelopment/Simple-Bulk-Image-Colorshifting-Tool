@@ -15,12 +15,12 @@ An interactive browser-based utility for live recoloring of PNG images. Drag and
 1. **Clone the repository**
 
    ```bash
-   git clone https://github.com/RiseVDevelopment/Simple-Bulk-Image-Colorshifting-Tool.git
+   git clone https://github.com/RiseVDevelopment/multiple-images-recolor-tool.git
    ```
 2. **Navigate into the folder**
 
    ```bash
-   cd Simple-Bulk-Image-Colorshifting-Tool
+   cd multiple-images-recolor-tool
    ```
 3. **Open in browser**
 
