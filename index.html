@@ -169,6 +169,18 @@
   <div id="dropzone"></div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
   <script>
+    const grayThreshold = 0.05
+    const hueGroupThreshold = 0.0833
+
+    let targetHSL = null
+    let isGrayGroup = false
+
+    function setTargetFromPixel(r, g, b) {
+      targetHSL = rgbToHsl(r, g, b)
+      isGrayGroup = targetHSL[1] <= grayThreshold
+      setColor(rgbToHex(r, g, b))
+    }
+
     const dropzone = document.getElementById('dropzone');
     const colorBar = document.getElementById('colorBar');
     const eybutton = document.getElementById('eyedropBtn');
@@ -177,8 +189,7 @@
     const hslInput = document.getElementById('hslInput');
     const downloadBtn = document.getElementById('downloadBtn');
     let images = [],
-      selecting = false,
-      targetHSL = null;
+      selecting = false
     const tol = {
       h: 0.05,
       s: 0.3,
@@ -210,9 +221,9 @@
 
     downloadBtn.addEventListener('click', () => {
       images.slice(0, 25).forEach(({
-          canvas,
-          name
-        }, i) =>
+        canvas,
+        name
+      }, i) =>
         setTimeout(() => canvas.toBlob(blob => saveAs(blob, name)), i * 150)
       );
       if (images.length > 25) alert('Nur erste 25 Bilder heruntergeladen.');
@@ -240,8 +251,10 @@
       if (images.length === 1) autoPickCenter(canvas);
       canvas.addEventListener('click', e => {
         if (!selecting) return;
-        const ctx = canvas.getContext('2d');
-        const px = ctx.getImageData(e.offsetX, e.offsetY, 1, 1).data;
+        const rect = canvas.getBoundingClientRect();
+        const x = Math.floor((e.clientX - rect.left) * (canvas.width / rect.width));
+        const y = Math.floor((e.clientY - rect.top) * (canvas.height / rect.height));
+        const px = canvas.getContext('2d').getImageData(x, y, 1, 1).data;
         setTargetFromPixel(px[0], px[1], px[2]);
       });
       updateCanvas(canvas);
@@ -271,7 +284,7 @@
       const rgb = hexToRgb(hex);
       rgbInput.value = rgb.join(',');
       const hsl = rgbToHsl(...rgb);
-      hslInput.value = `${hsl[0]*360|0},${hsl[1]*100|0}%,${hsl[2]*100|0}%`;
+      hslInput.value = `${hsl[0] * 360 | 0},${hsl[1] * 100 | 0}%,${hsl[2] * 100 | 0}%`;
       updateAll();
     }
     colorBar.oninput = e => setColor(e.target.value);
@@ -292,21 +305,64 @@
     }
 
     function updateCanvas(c) {
-      const ctx = c.getContext('2d');
-      ctx.clearRect(0, 0, c.width, c.height);
-      ctx.drawImage(c.original, 0, 0);
-      if (!targetHSL) return;
-      const tHue = rgbToHsl(...hexToRgb(colorBar.value))[0];
-      const data = ctx.getImageData(0, 0, c.width, c.height).data;
-      for (let i = 0; i < data.length; i += 4) {
-        const [h, s, l] = rgbToHsl(data[i], data[i + 1], data[i + 2]);
-        const [nr, ng, nb] = hslToRgb(tHue, s, l);
-        data[i] = nr;
-        data[i + 1] = ng;
-        data[i + 2] = nb;
+      const ctx = c.getContext('2d')
+      ctx.clearRect(0, 0, c.width, c.height)
+      ctx.drawImage(c.original, 0, 0)
+      if (!targetHSL) return
+
+      const newBaseHSL = rgbToHsl(...hexToRgb(colorBar.value))
+      const [origH, origS, origL] = targetHSL
+      const [newH, newS, newL] = newBaseHSL
+      const deltaH = newH - origH
+      const ratioS = origS > 0 ? newS / origS : 1
+      const ratioL = origL > 0 ? newL / origL : 1
+
+      const imageData = ctx.getImageData(0, 0, c.width, c.height)
+      const data = imageData.data
+      let minX = c.width, minY = c.height, maxX = 0, maxY = 0
+
+      for (let y = 0; y < c.height; y++) {
+        for (let x = 0; x < c.width; x++) {
+          const i = (y * c.width + x) * 4
+          const [h, s, l] = rgbToHsl(data[i], data[i + 1], data[i + 2])
+          const hueDiff = Math.min(Math.abs(h - origH), 1 - Math.abs(h - origH))
+          const inGroup = isGrayGroup
+            ? s <= grayThreshold
+            : hueDiff <= hueGroupThreshold
+
+          if (!inGroup) continue
+
+          let nh = h + deltaH
+          if (nh < 0) nh += 1
+          if (nh > 1) nh -= 1
+
+          const ns = Math.min(1, Math.max(0, s * ratioS))
+          const nl = Math.min(1, Math.max(0, l * ratioL))
+          const [nr, ng, nb] = hslToRgb(nh, ns, nl)
+
+          data[i] = nr
+          data[i + 1] = ng
+          data[i + 2] = nb
+
+          minX = Math.min(minX, x)
+          minY = Math.min(minY, y)
+          maxX = Math.max(maxX, x)
+          maxY = Math.max(maxY, y)
+        }
       }
-      ctx.putImageData(new ImageData(data, c.width, c.height), 0, 0);
+
+      ctx.putImageData(imageData, 0, 0)
+
+      if (minX <= maxX && minY <= maxY) {
+        ctx.save()
+        ctx.strokeStyle = '#FFFF00'
+        ctx.lineWidth = 2
+        ctx.setLineDash([5, 3])
+        ctx.strokeRect(minX, minY, maxX - minX + 1, maxY - minY + 1)
+        ctx.restore()
+      }
     }
+
 
     function autoPickCenter(c) {
       const ctx = c.getContext('2d');
